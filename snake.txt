@@ -1,0 +1,210 @@
+import tkinter
+import random
+import psycopg2
+import json
+
+
+ROWS = 25
+COLS = 25
+TILE_SIZE = 25
+
+WINDOW_WIDTH = TILE_SIZE * COLS
+WINDOW_HEIGHT = TILE_SIZE * ROWS
+
+class Tile:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+
+conn = psycopg2.connect(
+    host="localhost",
+    database="snake_db",      
+    user="postgres",
+    password="12345678",    
+    port=5432
+)
+cur = conn.cursor()
+
+def get_or_create_user(username):
+    cur.execute("SELECT id FROM \"user\" WHERE username = %s;", (username,))
+    user = cur.fetchone()
+    if user:
+        return user[0]
+    else:
+        cur.execute("INSERT INTO \"user\" (username) VALUES (%s) RETURNING id;", (username,))
+        user_id = cur.fetchone()[0]
+        conn.commit()
+        return user_id
+
+
+def save_game_state(user_id, level, score, snake_body, snake_head):
+    state = {
+        "snake_body": [{"x": t.x, "y": t.y} for t in snake_body],
+        "snake_head": {"x": snake_head.x, "y": snake_head.y}
+    }
+    state_json = json.dumps(state)
+    cur.execute("""
+        INSERT INTO user_score (user_id, level, score, saved_state) VALUES (%s, %s, %s, %s);
+    """, (user_id, level, score, state_json))
+    conn.commit()
+    print("Игра сохранена!")
+
+
+username = input("Введите ваше имя пользователя: ")
+user_id = get_or_create_user(username)
+
+
+window = tkinter.Tk()
+window.title("Snake")
+window.resizable(False, False)
+
+canvas = tkinter.Canvas(
+    window,
+    bg="black",
+    width=WINDOW_WIDTH,
+    height=WINDOW_HEIGHT,
+    borderwidth=0,
+    highlightthickness=0
+)
+canvas.pack()
+window.update()
+
+window_width = window.winfo_width()
+window_height = window.winfo_height()
+screen_width = window.winfo_screenwidth()
+screen_height = window.winfo_screenheight()
+
+window_x = int((screen_width / 2) - (window_width / 2))
+window_y = int((screen_height / 2) - (window_height / 2))
+window.geometry(f"{window_width}x{window_height}+{window_x}+{window_y}")
+
+
+snake = Tile(TILE_SIZE * 5, TILE_SIZE * 5)
+food = Tile(TILE_SIZE * 10, TILE_SIZE * 10)
+
+velocityX = 0
+velocityY = 0
+snake_body = []
+
+game_over = False
+score = 0
+level = 1  
+
+food_weight = random.randint(1, 5)
+food_timer = 50   # ~5 секунд
+
+
+def change_direction(e):
+    global velocityX, velocityY, game_over
+    if game_over:
+        return
+
+    if e.keysym == "Up" and velocityY != 1:
+        velocityX = 0
+        velocityY = -1
+    elif e.keysym == "Down" and velocityY != -1:
+        velocityX = 0
+        velocityY = 1
+    elif e.keysym == "Left" and velocityX != 1:
+        velocityX = -1
+        velocityY = 0
+    elif e.keysym == "Right" and velocityX != -1:
+        velocityX = 1
+        velocityY = 0
+
+
+def on_key_release(e):
+    change_direction(e)
+    if e.keysym == 'p':
+        save_game_state(user_id, level, score, snake_body, snake)
+
+
+def move():
+    global snake, food, snake_body, game_over, score, food_weight, food_timer
+
+    if game_over:
+        return
+
+    if snake.x < 0 or snake.x >= WINDOW_WIDTH or snake.y < 0 or snake.y >= WINDOW_HEIGHT:
+        game_over = True
+        return
+
+    for tile in snake_body:
+        if snake.x == tile.x and snake.y == tile.y:
+            game_over = True
+            return
+
+    if snake.x == food.x and snake.y == food.y:
+        snake_body.append(Tile(food.x, food.y))
+        score += food_weight
+
+        food.x = random.randint(0, COLS - 1) * TILE_SIZE
+        food.y = random.randint(0, ROWS - 1) * TILE_SIZE
+        food_weight = random.randint(1, 5)
+        food_timer = 50
+
+    for i in range(len(snake_body) - 1, -1, -1):
+        tile = snake_body[i]
+        if i == 0:
+            tile.x = snake.x
+            tile.y = snake.y
+        else:
+            prev = snake_body[i - 1]
+            tile.x = prev.x
+            tile.y = prev.y
+
+    food_timer -= 1
+    if food_timer <= 0:
+        food.x = random.randint(0, COLS - 1) * TILE_SIZE
+        food.y = random.randint(0, ROWS - 1) * TILE_SIZE
+        food_weight = random.randint(1, 5)
+        food_timer = 50
+
+    snake.x += velocityX * TILE_SIZE
+    snake.y += velocityY * TILE_SIZE
+
+
+def draw():
+    global score, game_over
+
+    move()
+    canvas.delete("all")
+
+    size = TILE_SIZE * (0.4 + 0.12 * food_weight)  # размер еды
+
+    food_center_x = food.x + TILE_SIZE / 2
+    food_center_y = food.y + TILE_SIZE / 2
+
+    x1 = food_center_x - size / 2
+    y1 = food_center_y - size / 2
+    x2 = food_center_x + size / 2
+    y2 = food_center_y + size / 2
+
+    canvas.create_rectangle(x1, y1, x2, y2, fill='red')
+    canvas.create_text(food_center_x, food_center_y,
+                       text=str(food_weight), fill="white", font="Arial 8")
+
+    canvas.create_rectangle(snake.x, snake.y, snake.x + TILE_SIZE, snake.y + TILE_SIZE, fill='lime green')
+
+    for tile in snake_body:
+        canvas.create_rectangle(tile.x, tile.y, tile.x + TILE_SIZE, tile.y + TILE_SIZE, fill='lime green')
+
+    if game_over:
+        canvas.create_text(
+            WINDOW_WIDTH / 2,
+            WINDOW_HEIGHT / 2,
+            font="Arial 20",
+            text=f"Game Over: {score}",
+            fill="white"
+        )
+    else:
+        canvas.create_text(30, 20, font="Arial 10", text=f"Score: {score}", fill="white")
+
+    window.after(100, draw)
+
+window.bind("<KeyRelease>", on_key_release)
+
+
+draw()
+window.mainloop()

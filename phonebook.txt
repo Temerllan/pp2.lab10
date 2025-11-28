@@ -1,0 +1,144 @@
+import psycopg2
+import csv
+
+host = "localhost"
+user = "postgres"
+password = "12345678"  
+db_name = "postgres"
+
+def connect():
+    return psycopg2.connect(
+        host=host,
+        user=user,
+        password=password,
+        database=db_name
+    )
+
+def create_table():
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS phonebook (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL,
+                    phone VARCHAR(20) NOT NULL
+                );
+            """)
+            print("Таблица создана (если не была).")
+
+def insert_from_csv(filename='phonebook.csv'):
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            with connect() as conn:
+                with conn.cursor() as cur:
+                    for row in reader:
+                        cur.execute(
+                            "INSERT INTO phonebook (name, phone) VALUES (%s, %s);",
+                            (row['name'], row['phone'])
+                        )
+        print("Данные из CSV загружены.")
+    except FileNotFoundError:
+        print(f"Файл {filename} не найден.")
+    except Exception as e:
+        print("Ошибка при загрузке из CSV:", e)
+
+def insert_from_console():
+    name = input("Введите имя: ")
+    phone = input("Введите телефон: ")
+    try:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO phonebook (name, phone) VALUES (%s, %s);",
+                    (name, phone)
+                )
+        print(f"Запись ({name}, {phone}) добавлена.")
+    except Exception as e:
+        print("Ошибка при вставке:", e)
+
+def update_data():
+    old_name = input("Введите имя пользователя для обновления: ")
+    new_name = input("Введите новое имя (оставьте пустым, если не менять): ")
+    new_phone = input("Введите новый телефон (оставьте пустым, если не менять): ")
+
+    try:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                if new_name:
+                    cur.execute(
+                        "UPDATE phonebook SET name = %s WHERE name = %s;",
+                        (new_name, old_name)
+                    )
+                if new_phone:
+                    cur.execute(
+                        "UPDATE phonebook SET phone = %s WHERE name = %s;",
+                        (new_phone, old_name)
+                    )
+        print("Данные обновлены.")
+    except Exception as e:
+        print("Ошибка при обновлении:", e)
+
+def search_data():
+    search = input("Введите часть имени для поиска: ")
+    try:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT name, phone FROM phonebook WHERE name ILIKE %s;",
+                    (f"%{search}%",)
+                )
+                results = cur.fetchall()
+                if results:
+                    print("Результаты поиска:")
+                    for name, phone in results:
+                        print(f"{name}: {phone}")
+                else:
+                    print("Ничего не найдено.")
+    except Exception as e:
+        print("Ошибка при поиске:", e)
+
+def delete_data():
+    del_value = input("Введите имя или телефон для удаления: ")
+    try:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM phonebook WHERE name = %s OR phone = %s;",
+                    (del_value, del_value)
+                )
+        print("Записи удалены (если такие были).")
+    except Exception as e:
+        print("Ошибка при удалении:", e)
+
+def main():
+    create_table()
+    while True:
+        print("\nВыбери действие:")
+        print("1 - Вставить данные из CSV файла")
+        print("2 - Вставить данные с консоли")
+        print("3 - Обновить данные")
+        print("4 - Поиск данных")
+        print("5 - Удалить данные")
+        print("0 - Выход")
+
+        choice = input("Введите номер действия: ")
+
+        if choice == '1':
+            insert_from_csv()
+        elif choice == '2':
+            insert_from_console()
+        elif choice == '3':
+            update_data()
+        elif choice == '4':
+            search_data()
+        elif choice == '5':
+            delete_data()
+        elif choice == '0':
+            print("Выход из программы.")
+            break
+        else:
+            print("Неверный ввод. Попробуйте снова.")
+
+if __name__ == "__main__":
+    main()
